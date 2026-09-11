@@ -416,7 +416,7 @@ let doc = emptyDoc();
 const view = { scale: 80, ox: 0, oy: 0 };
 const ui = {
   tab: 'structure', grid: true, allDims: false, allowZones: false,
-  hoverEdge: null, placeType: null, placePreview: null,
+  hoverEdge: null, hoverOpening: null, placeType: null, placePreview: null,
   newRoom: { shape: 'rect', w: 4, h: 3, cw: 1.5, ch: 1.5, sides: 6, side: 2, t: 0.15 },
 };
 let sel = null, mode = 'select', drag = null, draw = null, spaceDown = false, libDrag = null;
@@ -645,6 +645,27 @@ function rotateRoom(room, deg) {
   for (const c2 of ins.columns) { const q = rp(c2); c2.x = r3(q.x); c2.y = r3(q.y); if (Math.abs(deg % 180) === 90) [c2.w, c2.h] = [c2.h, c2.w]; }
   for (const l of ins.labels) { const q = rp(l); l.x = r3(q.x); l.y = r3(q.y); }
 }
+/* Escala una habitación (y lo que hay dentro) desde su centro para que su superficie útil pase a ser targetArea, manteniendo la proporción entre todos sus muros */
+function scaleRoomToArea(room, targetArea) {
+  const A = polyArea(room.points);
+  if (!(targetArea > 0.01) || A < 1e-6) return false;
+  const k = Math.sqrt(targetArea / A);
+  if (Math.abs(k - 1) < 1e-4) return true;
+  const c = centroid(room.points), sp = p => V.add(c, V.mul(V.sub(p, c), k));
+  const ins = itemsInside(room);
+  room.points = room.points.map(p => { const q = sp(p); return { x: r3(q.x), y: r3(q.y) }; });
+  const lo = room.labelOffset || { x: 0, y: 0 };
+  room.labelOffset = { x: r3(lo.x * k), y: r3(lo.y * k) };
+  for (const f of ins.furniture) { const q = sp(f); f.x = r3(q.x); f.y = r3(q.y); }
+  for (const c2 of ins.columns) { const q = sp(c2); c2.x = r3(q.x); c2.y = r3(q.y); }
+  for (const l of ins.labels) { const q = sp(l); l.x = r3(q.x); l.y = r3(q.y); }
+  for (const op of doc.openings) {
+    if (op.roomId !== room.id) continue;
+    op.offset = r3(Math.max(0, op.offset * k));
+    op.width = r3(clamp(op.width * k, 0.1, 20));
+  }
+  return true;
+}
 function normalizeOpenings() {
   const rooms = new Map(doc.rooms.map(r => [r.id, r]));
   doc.openings = doc.openings.filter(o => rooms.has(o.roomId));
@@ -858,7 +879,7 @@ function renderScene(v, W, H, o = {}) {
     }
   }
   // Puertas y ventanas
-  for (const og of G.openings) out.push(openingSvg(og, hot.has(og.op.id), !exp && isSel('opening', og.op.id)));
+  for (const og of G.openings) out.push(openingSvg(og, hot.has(og.op.id), !exp && (isSel('opening', og.op.id) || ui.hoverOpening === og.op.id)));
   // Columnas
   for (const c of doc.columns) {
     const on = !exp && isSel('column', c.id);
@@ -896,33 +917,35 @@ function renderScene(v, W, H, o = {}) {
 function openingSvg(og, hotZone, on) {
   const { op, e, s, f, lo, hi, n, side, leaves, w } = og;
   const T = hi - lo, ink = on ? C.accent : C.ink, k = 1 / RV.scale, out = [];
+  const m = on ? 2.2 : 1;
   const pad = Math.max(T, 16 * k) * 0.6;
   const band = (a0, a1) => [V.add(s, V.mul(n, a0)), V.add(f, V.mul(n, a0)), V.add(f, V.mul(n, a1)), V.add(s, V.mul(n, a1))];
   out.push(`<path d="${dPath(band(lo - pad, hi + pad))}" fill="transparent"/>`);
+  if (on) out.push(`<path d="${dPath(band(lo - pad, hi + pad))}" fill="${C.accent}" fill-opacity=".2" pointer-events="none"/>`);
   if (T > 0.004) out.push(`<path d="${dPath(band(lo - 1.5 * k, hi + 1.5 * k))}" fill="${op.type === 'window' ? '#FFFFFF' : CUT_FILL}"/>`);
   const at = (p, r) => V.add(p, V.mul(n, lo + T * r));
   const sIn = at(s, 0), fIn = at(f, 0), sOut = at(s, 1), fOut = at(f, 1);
   if (op.type === 'window') {
-    if (T > 0.004) out.push(lineEl(sIn, fIn, ink, 1), lineEl(sOut, fOut, ink, 1), lineEl(sIn, sOut, ink, 1), lineEl(fIn, fOut, ink, 1));
+    if (T > 0.004) out.push(lineEl(sIn, fIn, ink, 1 * m), lineEl(sOut, fOut, ink, 1 * m), lineEl(sIn, sOut, ink, 1 * m), lineEl(fIn, fOut, ink, 1 * m));
     if (op.style === 'sliding') {
       const m1 = V.add(s, V.mul(e.d, w * 0.56)), m2 = V.add(s, V.mul(e.d, w * 0.44));
-      out.push(lineEl(at(s, 0.36), at(m1, 0.36), ink, 1.7), lineEl(at(m2, 0.64), at(f, 0.64), ink, 1.7));
-    } else out.push(lineEl(at(s, 0.5), at(f, 0.5), ink, 1.3));
+      out.push(lineEl(at(s, 0.36), at(m1, 0.36), ink, 1.7 * m), lineEl(at(m2, 0.64), at(f, 0.64), ink, 1.7 * m));
+    } else out.push(lineEl(at(s, 0.5), at(f, 0.5), ink, 1.3 * m));
   } else {
-    if (T > 0.004) out.push(lineEl(sIn, sOut, ink, 1), lineEl(fIn, fOut, ink, 1));
+    if (T > 0.004) out.push(lineEl(sIn, sOut, ink, 1 * m), lineEl(fIn, fOut, ink, 1 * m));
     if (op.style === 'sliding') {
       if (op.leaves === 2) {
         const m1 = V.add(s, V.mul(e.d, w * 0.56)), m2 = V.add(s, V.mul(e.d, w * 0.44));
-        out.push(lineEl(at(s, 0.32), at(m1, 0.32), ink, 2.4), lineEl(at(m2, 0.68), at(f, 0.68), ink, 2.4));
-      } else out.push(lineEl(at(s, 0.5), at(f, 0.5), ink, 2.4));
+        out.push(lineEl(at(s, 0.32), at(m1, 0.32), ink, 2.4 * m), lineEl(at(m2, 0.68), at(f, 0.68), ink, 2.4 * m));
+      } else out.push(lineEl(at(s, 0.5), at(f, 0.5), ink, 2.4 * m));
     }
   }
   for (const L of leaves) {
     const arc = sectorPoly(L.h, L.c, side, L.r, 18).slice(1);
     const tip = V.add(L.h, V.mul(side, L.r));
     const col = hotZone ? C.danger : on ? C.accent : C.arc;
-    out.push(`<path d="${dPath(arc, false)}" fill="none" stroke="${col}" stroke-width="${px(1.1)}" stroke-dasharray="${px(4)} ${px(3)}"/>`);
-    out.push(lineEl(L.h, tip, hotZone ? C.danger : ink, op.type === 'door' ? 2.2 : 1.3));
+    out.push(`<path d="${dPath(arc, false)}" fill="none" stroke="${col}" stroke-width="${px(1.1 * m)}" stroke-dasharray="${px(4)} ${px(3)}"/>`);
+    out.push(lineEl(L.h, tip, hotZone ? C.danger : ink, (op.type === 'door' ? 2.2 : 1.3) * m));
   }
   return `<g data-kind="opening" data-id="${op.id}" style="cursor:move">${out.join('')}</g>`;
 }
@@ -1251,7 +1274,7 @@ function select(kind, id) {
   sel = kind ? { kind, id } : null;
   if (kind === 'furniture') ui.tab = 'decor';
   else if (kind) ui.tab = 'structure';
-  if (!same) { ui.hoverEdge = null; renderPanel(); }
+  if (!same) { ui.hoverEdge = null; ui.hoverOpening = null; renderPanel(); }
   requestRender();
 }
 function setMode(m, o = {}) {
@@ -1984,7 +2007,9 @@ function inspectorHTML(kind, o) {
 
   if (kind === 'room') {
     h += `<section class="sec stack">${textField('Nombre', 'room.name', o.name)}${labeled('Color del suelo', swatches('room.color', ROOM_COLORS, o.color))}`;
-    h += `<div class="stats"><div class="stat"><span>Superficie útil</span><b data-bind="area">${fmt(polyArea(o.points))} m²</b></div><div class="stat"><span>Perímetro</span><b data-bind="perim">${fmt(perimeter(o.points))} m</b></div></div></section>`;
+    h += `<div class="stats"><div class="stat"><span>Superficie útil</span><b data-bind="area">${fmt(polyArea(o.points))} m²</b></div><div class="stat"><span>Perímetro</span><b data-bind="perim">${fmt(perimeter(o.points))} m</b></div></div>`;
+    h += `<div class="field"><span>Escalar a la superficie útil real</span><div style="display:flex;gap:8px;align-items:center"><span class="inp" style="flex:1"><input id="scaleAreaInput" inputmode="decimal" value="${fmt(polyArea(o.points))}" autocomplete="off" spellcheck="false" aria-label="Superficie útil objetivo"><em>m²</em></span><button class="btn" data-act="scale-area">${icon('fit')}Escalar</button></div></div>`;
+    h += `<p class="note">Útil cuando has calcado la habitación sobre una imagen a una escala equivocada: ajusta todos los muros a la vez, manteniendo su proporción, hasta llegar a la superficie real.</p></section>`;
     h += `<section class="sec"><div class="sec-title">Muros <small>medida interior</small></div><div class="walls-head"><span></span><span>Longitud</span><span>Grosor</span><span></span><span></span></div>`;
     roomGeom(o).edges.forEach((e, i) => {
       h += `<div class="wall-row" data-hover-edge="${i}"><span class="idx">${i + 1}</span>${numInput('room.edgeLen', e.len, { idx: i, aria: `Longitud del muro ${i + 1}` })}${numInput('room.thick', o.thick[i], { idx: i, aria: `Grosor del muro ${i + 1}` })}` +
@@ -1995,7 +2020,7 @@ function inspectorHTML(kind, o) {
     h += `<p class="note" style="margin-top:10px">Al cambiar una longitud, el muro siguiente se desplaza en paralelo. Con grosor 0 el tramo queda abierto, útil para cocinas abiertas al salón.</p></section>`;
     const ops = doc.openings.filter(op => op.roomId === o.id);
     h += `<section class="sec"><div class="sec-title">Puertas y ventanas <small>${ops.length || ''}</small></div>`;
-    if (ops.length) h += `<div class="list" style="margin-bottom:10px">${ops.map(op => `<button class="list-row" data-act="select" data-kind="opening" data-id="${op.id}">${icon(op.type)}<span class="name">${op.type === 'door' ? 'Puerta' : 'Ventana'} de ${fmt(op.width)} m</span><span class="val">muro ${op.edge + 1}</span></button>`).join('')}</div>`;
+    if (ops.length) h += `<div class="list" style="margin-bottom:10px">${ops.map(op => `<button class="list-row" data-act="select" data-kind="opening" data-id="${op.id}" data-hover-opening="${op.id}">${icon(op.type)}<span class="name">${op.type === 'door' ? 'Puerta' : 'Ventana'} de ${fmt(op.width)} m</span><span class="val">muro ${op.edge + 1}</span></button>`).join('')}</div>`;
     h += `<div class="grid2"><button class="btn" data-act="tool" data-tool="door">${icon('door')}Puerta</button><button class="btn" data-act="tool" data-tool="window">${icon('window')}Ventana</button></div></section>`;
     h += actionsRow({ rotate: true });
   }
@@ -2207,6 +2232,14 @@ panel.addEventListener('click', e => {
       break;
     }
     case 'rot-set': setField('f.rot', b.dataset.value, true); break;
+    case 'scale-area': {
+      if (!o) break;
+      const inp = panel.querySelector('#scaleAreaInput'), v = inp ? parseNum(inp.value) : NaN;
+      if (isNaN(v) || v <= 0) { toast('Escribe una superficie válida en m²', true); break; }
+      if (scaleRoomToArea(o, v)) { commit(); renderPanel(); requestRender(); toast(`Habitación escalada a ${fmt(v)} m²`); }
+      else toast('No se pudo escalar la habitación', true);
+      break;
+    }
     case 'toggle': ui[b.dataset.key] = !ui[b.dataset.key]; renderPanel(); requestRender(); break;
     case 'bg-add': case 'bg-replace': $('#file-bg').click(); break;
     case 'bg-toggle-lock': if (doc.bg) { doc.bg.locked = !doc.bg.locked; commit(); renderPanel(); requestRender(); } break;
@@ -2224,6 +2257,7 @@ panel.addEventListener('change', e => {
 panel.addEventListener('keydown', e => {
   const t = e.target;
   if (t.tagName !== 'INPUT') return;
+  if (t.id === 'scaleAreaInput' && e.key === 'Enter') { e.preventDefault(); const b = panel.querySelector('[data-act="scale-area"]'); if (b) b.click(); return; }
   if (e.key === 'Enter' || e.key === 'Escape') { t.blur(); return; }
   if (t.dataset.num && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
     e.preventDefault();
@@ -2234,10 +2268,21 @@ panel.addEventListener('keydown', e => {
   }
 });
 const edgeRowOn = row => { if (row && sel && sel.kind === 'room') { const i = +row.dataset.hoverEdge; if (!ui.hoverEdge || ui.hoverEdge.edge !== i) { ui.hoverEdge = { roomId: sel.id, edge: i }; requestRender(); } } };
-panel.addEventListener('pointerover', e => edgeRowOn(e.target.closest('[data-hover-edge]')));
-panel.addEventListener('focusin', e => edgeRowOn(e.target.closest('[data-hover-edge]')));
-panel.addEventListener('pointerout', e => { const row = e.target.closest('[data-hover-edge]'); if (row && !row.contains(e.relatedTarget) && !row.contains(document.activeElement)) { ui.hoverEdge = null; requestRender(); } });
-panel.addEventListener('focusout', e => { const row = e.target.closest('[data-hover-edge]'); if (row && !row.contains(e.relatedTarget)) { ui.hoverEdge = null; requestRender(); } });
+const openingRowOn = row => { if (row) { const id = row.dataset.hoverOpening; if (ui.hoverOpening !== id) { ui.hoverOpening = id; requestRender(); } } };
+panel.addEventListener('pointerover', e => { edgeRowOn(e.target.closest('[data-hover-edge]')); openingRowOn(e.target.closest('[data-hover-opening]')); });
+panel.addEventListener('focusin', e => { edgeRowOn(e.target.closest('[data-hover-edge]')); openingRowOn(e.target.closest('[data-hover-opening]')); });
+panel.addEventListener('pointerout', e => {
+  const row = e.target.closest('[data-hover-edge]');
+  if (row && !row.contains(e.relatedTarget) && !row.contains(document.activeElement)) { ui.hoverEdge = null; requestRender(); }
+  const row2 = e.target.closest('[data-hover-opening]');
+  if (row2 && !row2.contains(e.relatedTarget) && !row2.contains(document.activeElement)) { ui.hoverOpening = null; requestRender(); }
+});
+panel.addEventListener('focusout', e => {
+  const row = e.target.closest('[data-hover-edge]');
+  if (row && !row.contains(e.relatedTarget)) { ui.hoverEdge = null; requestRender(); }
+  const row2 = e.target.closest('[data-hover-opening]');
+  if (row2 && !row2.contains(e.relatedTarget)) { ui.hoverOpening = null; requestRender(); }
+});
 
 /* Biblioteca de muebles: clic para añadir, arrastrar para soltar en el plano */
 panel.addEventListener('pointerdown', e => {

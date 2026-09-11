@@ -98,7 +98,9 @@ function inspectorHTML(kind, o) {
 
   if (kind === 'room') {
     h += `<section class="sec stack">${textField('Nombre', 'room.name', o.name)}${labeled('Color del suelo', swatches('room.color', ROOM_COLORS, o.color))}`;
-    h += `<div class="stats"><div class="stat"><span>Superficie útil</span><b data-bind="area">${fmt(polyArea(o.points))} m²</b></div><div class="stat"><span>Perímetro</span><b data-bind="perim">${fmt(perimeter(o.points))} m</b></div></div></section>`;
+    h += `<div class="stats"><div class="stat"><span>Superficie útil</span><b data-bind="area">${fmt(polyArea(o.points))} m²</b></div><div class="stat"><span>Perímetro</span><b data-bind="perim">${fmt(perimeter(o.points))} m</b></div></div>`;
+    h += `<div class="field"><span>Escalar a la superficie útil real</span><div style="display:flex;gap:8px;align-items:center"><span class="inp" style="flex:1"><input id="scaleAreaInput" inputmode="decimal" value="${fmt(polyArea(o.points))}" autocomplete="off" spellcheck="false" aria-label="Superficie útil objetivo"><em>m²</em></span><button class="btn" data-act="scale-area">${icon('fit')}Escalar</button></div></div>`;
+    h += `<p class="note">Útil cuando has calcado la habitación sobre una imagen a una escala equivocada: ajusta todos los muros a la vez, manteniendo su proporción, hasta llegar a la superficie real.</p></section>`;
     h += `<section class="sec"><div class="sec-title">Muros <small>medida interior</small></div><div class="walls-head"><span></span><span>Longitud</span><span>Grosor</span><span></span><span></span></div>`;
     roomGeom(o).edges.forEach((e, i) => {
       h += `<div class="wall-row" data-hover-edge="${i}"><span class="idx">${i + 1}</span>${numInput('room.edgeLen', e.len, { idx: i, aria: `Longitud del muro ${i + 1}` })}${numInput('room.thick', o.thick[i], { idx: i, aria: `Grosor del muro ${i + 1}` })}` +
@@ -109,7 +111,7 @@ function inspectorHTML(kind, o) {
     h += `<p class="note" style="margin-top:10px">Al cambiar una longitud, el muro siguiente se desplaza en paralelo. Con grosor 0 el tramo queda abierto, útil para cocinas abiertas al salón.</p></section>`;
     const ops = doc.openings.filter(op => op.roomId === o.id);
     h += `<section class="sec"><div class="sec-title">Puertas y ventanas <small>${ops.length || ''}</small></div>`;
-    if (ops.length) h += `<div class="list" style="margin-bottom:10px">${ops.map(op => `<button class="list-row" data-act="select" data-kind="opening" data-id="${op.id}">${icon(op.type)}<span class="name">${op.type === 'door' ? 'Puerta' : 'Ventana'} de ${fmt(op.width)} m</span><span class="val">muro ${op.edge + 1}</span></button>`).join('')}</div>`;
+    if (ops.length) h += `<div class="list" style="margin-bottom:10px">${ops.map(op => `<button class="list-row" data-act="select" data-kind="opening" data-id="${op.id}" data-hover-opening="${op.id}">${icon(op.type)}<span class="name">${op.type === 'door' ? 'Puerta' : 'Ventana'} de ${fmt(op.width)} m</span><span class="val">muro ${op.edge + 1}</span></button>`).join('')}</div>`;
     h += `<div class="grid2"><button class="btn" data-act="tool" data-tool="door">${icon('door')}Puerta</button><button class="btn" data-act="tool" data-tool="window">${icon('window')}Ventana</button></div></section>`;
     h += actionsRow({ rotate: true });
   }
@@ -321,6 +323,14 @@ panel.addEventListener('click', e => {
       break;
     }
     case 'rot-set': setField('f.rot', b.dataset.value, true); break;
+    case 'scale-area': {
+      if (!o) break;
+      const inp = panel.querySelector('#scaleAreaInput'), v = inp ? parseNum(inp.value) : NaN;
+      if (isNaN(v) || v <= 0) { toast('Escribe una superficie válida en m²', true); break; }
+      if (scaleRoomToArea(o, v)) { commit(); renderPanel(); requestRender(); toast(`Habitación escalada a ${fmt(v)} m²`); }
+      else toast('No se pudo escalar la habitación', true);
+      break;
+    }
     case 'toggle': ui[b.dataset.key] = !ui[b.dataset.key]; renderPanel(); requestRender(); break;
     case 'bg-add': case 'bg-replace': $('#file-bg').click(); break;
     case 'bg-toggle-lock': if (doc.bg) { doc.bg.locked = !doc.bg.locked; commit(); renderPanel(); requestRender(); } break;
@@ -338,6 +348,7 @@ panel.addEventListener('change', e => {
 panel.addEventListener('keydown', e => {
   const t = e.target;
   if (t.tagName !== 'INPUT') return;
+  if (t.id === 'scaleAreaInput' && e.key === 'Enter') { e.preventDefault(); const b = panel.querySelector('[data-act="scale-area"]'); if (b) b.click(); return; }
   if (e.key === 'Enter' || e.key === 'Escape') { t.blur(); return; }
   if (t.dataset.num && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
     e.preventDefault();
@@ -348,10 +359,21 @@ panel.addEventListener('keydown', e => {
   }
 });
 const edgeRowOn = row => { if (row && sel && sel.kind === 'room') { const i = +row.dataset.hoverEdge; if (!ui.hoverEdge || ui.hoverEdge.edge !== i) { ui.hoverEdge = { roomId: sel.id, edge: i }; requestRender(); } } };
-panel.addEventListener('pointerover', e => edgeRowOn(e.target.closest('[data-hover-edge]')));
-panel.addEventListener('focusin', e => edgeRowOn(e.target.closest('[data-hover-edge]')));
-panel.addEventListener('pointerout', e => { const row = e.target.closest('[data-hover-edge]'); if (row && !row.contains(e.relatedTarget) && !row.contains(document.activeElement)) { ui.hoverEdge = null; requestRender(); } });
-panel.addEventListener('focusout', e => { const row = e.target.closest('[data-hover-edge]'); if (row && !row.contains(e.relatedTarget)) { ui.hoverEdge = null; requestRender(); } });
+const openingRowOn = row => { if (row) { const id = row.dataset.hoverOpening; if (ui.hoverOpening !== id) { ui.hoverOpening = id; requestRender(); } } };
+panel.addEventListener('pointerover', e => { edgeRowOn(e.target.closest('[data-hover-edge]')); openingRowOn(e.target.closest('[data-hover-opening]')); });
+panel.addEventListener('focusin', e => { edgeRowOn(e.target.closest('[data-hover-edge]')); openingRowOn(e.target.closest('[data-hover-opening]')); });
+panel.addEventListener('pointerout', e => {
+  const row = e.target.closest('[data-hover-edge]');
+  if (row && !row.contains(e.relatedTarget) && !row.contains(document.activeElement)) { ui.hoverEdge = null; requestRender(); }
+  const row2 = e.target.closest('[data-hover-opening]');
+  if (row2 && !row2.contains(e.relatedTarget) && !row2.contains(document.activeElement)) { ui.hoverOpening = null; requestRender(); }
+});
+panel.addEventListener('focusout', e => {
+  const row = e.target.closest('[data-hover-edge]');
+  if (row && !row.contains(e.relatedTarget)) { ui.hoverEdge = null; requestRender(); }
+  const row2 = e.target.closest('[data-hover-opening]');
+  if (row2 && !row2.contains(e.relatedTarget)) { ui.hoverOpening = null; requestRender(); }
+});
 
 /* Biblioteca de muebles: clic para añadir, arrastrar para soltar en el plano */
 panel.addEventListener('pointerdown', e => {

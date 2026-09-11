@@ -193,7 +193,7 @@ let doc = emptyDoc();
 const view = { scale: 80, ox: 0, oy: 0 };
 const ui = {
   tab: 'structure', grid: true, allDims: false, allowZones: false,
-  hoverEdge: null, placeType: null, placePreview: null,
+  hoverEdge: null, hoverOpening: null, placeType: null, placePreview: null,
   newRoom: { shape: 'rect', w: 4, h: 3, cw: 1.5, ch: 1.5, sides: 6, side: 2, t: 0.15 },
 };
 let sel = null, mode = 'select', drag = null, draw = null, spaceDown = false, libDrag = null;
@@ -421,6 +421,27 @@ function rotateRoom(room, deg) {
   for (const f of ins.furniture) { const q = rp(f); f.x = q.x; f.y = q.y; f.rot = norm360((f.rot || 0) + deg); }
   for (const c2 of ins.columns) { const q = rp(c2); c2.x = r3(q.x); c2.y = r3(q.y); if (Math.abs(deg % 180) === 90) [c2.w, c2.h] = [c2.h, c2.w]; }
   for (const l of ins.labels) { const q = rp(l); l.x = r3(q.x); l.y = r3(q.y); }
+}
+/* Escala una habitación (y lo que hay dentro) desde su centro para que su superficie útil pase a ser targetArea, manteniendo la proporción entre todos sus muros */
+function scaleRoomToArea(room, targetArea) {
+  const A = polyArea(room.points);
+  if (!(targetArea > 0.01) || A < 1e-6) return false;
+  const k = Math.sqrt(targetArea / A);
+  if (Math.abs(k - 1) < 1e-4) return true;
+  const c = centroid(room.points), sp = p => V.add(c, V.mul(V.sub(p, c), k));
+  const ins = itemsInside(room);
+  room.points = room.points.map(p => { const q = sp(p); return { x: r3(q.x), y: r3(q.y) }; });
+  const lo = room.labelOffset || { x: 0, y: 0 };
+  room.labelOffset = { x: r3(lo.x * k), y: r3(lo.y * k) };
+  for (const f of ins.furniture) { const q = sp(f); f.x = r3(q.x); f.y = r3(q.y); }
+  for (const c2 of ins.columns) { const q = sp(c2); c2.x = r3(q.x); c2.y = r3(q.y); }
+  for (const l of ins.labels) { const q = sp(l); l.x = r3(q.x); l.y = r3(q.y); }
+  for (const op of doc.openings) {
+    if (op.roomId !== room.id) continue;
+    op.offset = r3(Math.max(0, op.offset * k));
+    op.width = r3(clamp(op.width * k, 0.1, 20));
+  }
+  return true;
 }
 function normalizeOpenings() {
   const rooms = new Map(doc.rooms.map(r => [r.id, r]));

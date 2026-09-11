@@ -87,7 +87,7 @@ function renderScene(v, W, H, o = {}) {
     }
   }
   // Puertas y ventanas
-  for (const og of G.openings) out.push(openingSvg(og, hot.has(og.op.id), !exp && isSel('opening', og.op.id)));
+  for (const og of G.openings) out.push(openingSvg(og, hot.has(og.op.id), !exp && (isSel('opening', og.op.id) || ui.hoverOpening === og.op.id)));
   // Columnas
   for (const c of doc.columns) {
     const on = !exp && isSel('column', c.id);
@@ -125,33 +125,35 @@ function renderScene(v, W, H, o = {}) {
 function openingSvg(og, hotZone, on) {
   const { op, e, s, f, lo, hi, n, side, leaves, w } = og;
   const T = hi - lo, ink = on ? C.accent : C.ink, k = 1 / RV.scale, out = [];
+  const m = on ? 2.2 : 1;
   const pad = Math.max(T, 16 * k) * 0.6;
   const band = (a0, a1) => [V.add(s, V.mul(n, a0)), V.add(f, V.mul(n, a0)), V.add(f, V.mul(n, a1)), V.add(s, V.mul(n, a1))];
   out.push(`<path d="${dPath(band(lo - pad, hi + pad))}" fill="transparent"/>`);
+  if (on) out.push(`<path d="${dPath(band(lo - pad, hi + pad))}" fill="${C.accent}" fill-opacity=".2" pointer-events="none"/>`);
   if (T > 0.004) out.push(`<path d="${dPath(band(lo - 1.5 * k, hi + 1.5 * k))}" fill="${op.type === 'window' ? '#FFFFFF' : CUT_FILL}"/>`);
   const at = (p, r) => V.add(p, V.mul(n, lo + T * r));
   const sIn = at(s, 0), fIn = at(f, 0), sOut = at(s, 1), fOut = at(f, 1);
   if (op.type === 'window') {
-    if (T > 0.004) out.push(lineEl(sIn, fIn, ink, 1), lineEl(sOut, fOut, ink, 1), lineEl(sIn, sOut, ink, 1), lineEl(fIn, fOut, ink, 1));
+    if (T > 0.004) out.push(lineEl(sIn, fIn, ink, 1 * m), lineEl(sOut, fOut, ink, 1 * m), lineEl(sIn, sOut, ink, 1 * m), lineEl(fIn, fOut, ink, 1 * m));
     if (op.style === 'sliding') {
       const m1 = V.add(s, V.mul(e.d, w * 0.56)), m2 = V.add(s, V.mul(e.d, w * 0.44));
-      out.push(lineEl(at(s, 0.36), at(m1, 0.36), ink, 1.7), lineEl(at(m2, 0.64), at(f, 0.64), ink, 1.7));
-    } else out.push(lineEl(at(s, 0.5), at(f, 0.5), ink, 1.3));
+      out.push(lineEl(at(s, 0.36), at(m1, 0.36), ink, 1.7 * m), lineEl(at(m2, 0.64), at(f, 0.64), ink, 1.7 * m));
+    } else out.push(lineEl(at(s, 0.5), at(f, 0.5), ink, 1.3 * m));
   } else {
-    if (T > 0.004) out.push(lineEl(sIn, sOut, ink, 1), lineEl(fIn, fOut, ink, 1));
+    if (T > 0.004) out.push(lineEl(sIn, sOut, ink, 1 * m), lineEl(fIn, fOut, ink, 1 * m));
     if (op.style === 'sliding') {
       if (op.leaves === 2) {
         const m1 = V.add(s, V.mul(e.d, w * 0.56)), m2 = V.add(s, V.mul(e.d, w * 0.44));
-        out.push(lineEl(at(s, 0.32), at(m1, 0.32), ink, 2.4), lineEl(at(m2, 0.68), at(f, 0.68), ink, 2.4));
-      } else out.push(lineEl(at(s, 0.5), at(f, 0.5), ink, 2.4));
+        out.push(lineEl(at(s, 0.32), at(m1, 0.32), ink, 2.4 * m), lineEl(at(m2, 0.68), at(f, 0.68), ink, 2.4 * m));
+      } else out.push(lineEl(at(s, 0.5), at(f, 0.5), ink, 2.4 * m));
     }
   }
   for (const L of leaves) {
     const arc = sectorPoly(L.h, L.c, side, L.r, 18).slice(1);
     const tip = V.add(L.h, V.mul(side, L.r));
     const col = hotZone ? C.danger : on ? C.accent : C.arc;
-    out.push(`<path d="${dPath(arc, false)}" fill="none" stroke="${col}" stroke-width="${px(1.1)}" stroke-dasharray="${px(4)} ${px(3)}"/>`);
-    out.push(lineEl(L.h, tip, hotZone ? C.danger : ink, op.type === 'door' ? 2.2 : 1.3));
+    out.push(`<path d="${dPath(arc, false)}" fill="none" stroke="${col}" stroke-width="${px(1.1 * m)}" stroke-dasharray="${px(4)} ${px(3)}"/>`);
+    out.push(lineEl(L.h, tip, hotZone ? C.danger : ink, (op.type === 'door' ? 2.2 : 1.3) * m));
   }
   return `<g data-kind="opening" data-id="${op.id}" style="cursor:move">${out.join('')}</g>`;
 }

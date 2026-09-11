@@ -140,7 +140,7 @@ function select(kind, id) {
   sel = kind ? { kind, id } : null;
   if (kind === 'furniture') ui.tab = 'decor';
   else if (kind) ui.tab = 'structure';
-  if (!same) { ui.hoverEdge = null; renderPanel(); }
+  if (!same) { ui.hoverEdge = null; ui.hoverOpening = null; renderPanel(); }
   requestRender();
 }
 function setMode(m, o = {}) {
