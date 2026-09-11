@@ -188,7 +188,7 @@ function circlePolyOverlap(c, r, poly) {
 }
 
 /* ════════════════════════ Estado ════════════════════════ */
-const emptyDoc = () => ({ rooms: [], openings: [], furniture: [], columns: [], labels: [] });
+const emptyDoc = () => ({ rooms: [], openings: [], furniture: [], columns: [], labels: [], bg: null });
 let doc = emptyDoc();
 const view = { scale: 80, ox: 0, oy: 0 };
 const ui = {
@@ -200,7 +200,7 @@ let sel = null, mode = 'select', drag = null, draw = null, spaceDown = false, li
 let lastPointerWorld = { x: 0, y: 0 };
 
 const COLL = { room: 'rooms', opening: 'openings', furniture: 'furniture', column: 'columns', label: 'labels' };
-const find = (kind, id) => (doc[COLL[kind]] || []).find(o => o.id === id) || null;
+const find = (kind, id) => (kind === 'bg' ? doc.bg || null : (doc[COLL[kind]] || []).find(o => o.id === id) || null);
 const selObj = () => (sel ? find(sel.kind, sel.id) : null);
 const isSel = (kind, id) => !!sel && sel.kind === kind && sel.id === id;
 
@@ -471,6 +471,13 @@ function sanitize(d) {
   out.labels = (Array.isArray(d.labels) ? d.labels : []).filter(l => l && Number.isFinite(+l.x)).map(l => ({
     id: String(l.id || uid('l')), text: String(l.text ?? ''), x: +l.x, y: num(l.y, 0), size: ['s', 'm', 'l'].includes(l.size) ? l.size : 'm',
   }));
+  out.bg = (d.bg && typeof d.bg.src === 'string' && /^data:image\//.test(d.bg.src)) ? {
+    src: d.bg.src, x: num(d.bg.x, 0), y: num(d.bg.y, 0),
+    w: clamp(num(d.bg.w, 1), 0.05, 500), h: clamp(num(d.bg.h, 1), 0.05, 500),
+    rot: norm360(num(d.bg.rot, 0)), opacity: clamp(num(d.bg.opacity, 0.6), 0.05, 1),
+    locked: !!d.bg.locked, visible: d.bg.visible !== false,
+    ar: clamp(num(d.bg.ar, num(d.bg.w, 1) / Math.max(0.01, num(d.bg.h, 1))), 0.02, 50),
+  } : null;
   normalizeOpeningsOn(out);
   return out;
 }

@@ -43,6 +43,7 @@ function renderScene(v, W, H, o = {}) {
   const out = [];
   if (!exp) out.push(`<rect data-kind="bg" x="0" y="0" width="${W}" height="${H}" fill="transparent"/>`);
   if (!exp && ui.grid) out.push(gridSvg(W, H));
+  if (!exp && doc.bg && doc.bg.visible !== false) out.push(bgSvg(doc.bg));
 
   // Conflictos de muebles (muros/columnas y zonas de apertura)
   const conf = new Map(), hot = new Set();
@@ -113,6 +114,7 @@ function renderScene(v, W, H, o = {}) {
     if (selRoom) out.push(roomHandles(G.gmap.get(selRoom)));
     if (sel && sel.kind === 'furniture') { const f = find('furniture', sel.id); if (f) out.push(furnitureHandles(f)); }
     if (sel && sel.kind === 'opening') { const og = G.openings.find(x => x.op.id === sel.id); if (og) out.push(openingDims(og)); }
+    if (sel && sel.kind === 'bg' && doc.bg) out.push(bgHandles(doc.bg));
     if (drag && drag.guides) out.push(guidesSvg(drag.guides, W, H));
     if (mode === 'draw' && draw) out.push(drawPreview(W, H));
     if (mode === 'place' && ui.placePreview) { const og = openingGeom(ui.placePreview, G.gmap); if (og) out.push(`<g opacity=".8" pointer-events="none">${openingSvg(og, false, true)}</g>`); }
@@ -296,6 +298,20 @@ function guidesSvg(gd, W, H) {
   return o;
 }
 
+function bgSvg(bg) {
+  const X = SX(bg.x), Y = SY(bg.y), w = Math.max(1, bg.w * RV.scale), h = Math.max(1, bg.h * RV.scale), rot = bg.rot || 0;
+  const tr = `translate(${X.toFixed(1)},${Y.toFixed(1)}) rotate(${rot.toFixed(2)})`;
+  let o = `<g transform="${tr}" opacity="${bg.opacity}" pointer-events="none"><image href="${esc(bg.src)}" x="${(-w / 2).toFixed(1)}" y="${(-h / 2).toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" preserveAspectRatio="none"/></g>`;
+  if (!bg.locked) o += `<rect data-kind="bgimg" data-id="bg" x="${(-w / 2).toFixed(1)}" y="${(-h / 2).toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="transparent" transform="${tr}" style="cursor:${isSel('bg', 'bg') ? 'move' : 'default'}"/>`;
+  return o;
+}
+function bgHandles(bg) {
+  const X = SX(bg.x), Y = SY(bg.y), w = bg.w * RV.scale, h = bg.h * RV.scale, rot = bg.rot || 0;
+  const tr = `translate(${X.toFixed(1)},${Y.toFixed(1)}) rotate(${rot.toFixed(2)})`;
+  let o = `<rect transform="${tr}" x="${(-w / 2).toFixed(1)}" y="${(-h / 2).toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="none" stroke="${C.accent}" stroke-width="1.5" stroke-dasharray="6 4" pointer-events="none"/>`;
+  if (!bg.locked) o += `<rect data-kind="bgresize" data-id="bg" transform="${tr}" x="${(w / 2 - 6).toFixed(1)}" y="${(h / 2 - 6).toFixed(1)}" width="12" height="12" rx="2.5" fill="#fff" stroke="${C.accent}" stroke-width="1.6" style="cursor:nwse-resize"/>`;
+  return o;
+}
 function drawPreview(W, H) {
   const pts = draw.points, cur = draw.cursor;
   const all = cur && !(pts.length && V.dist(cur, pts[pts.length - 1]) < 1e-6) ? pts.concat([cur]) : pts.slice();

@@ -35,9 +35,22 @@ function presetGlyph(it) {
 }
 
 /* ════════════════════════ Panel: vistas ════════════════════════ */
+function bgHTML() {
+  const bg = doc.bg;
+  let h = `<section class="sec"><div class="sec-title">Imagen de fondo</div>`;
+  if (!bg) {
+    h += `<p class="note">Sube una foto o captura del plano de la promoción (PDF exportado a imagen, folleto, escaneo…) para dibujar las habitaciones y los muebles encima.</p>`;
+    h += `<button class="btn block" data-act="bg-add">${icon('plus')}Subir imagen</button>`;
+  } else {
+    h += `<button class="list-row" data-act="select" data-kind="bg" data-id="bg"><i class="swatch-dot" style="background:#ccc"></i><span class="name">Imagen del plano</span><span class="val">${Math.round(bg.opacity * 100)}%</span></button>`;
+    h += `<div class="grid2" style="margin-top:8px"><button class="btn" data-act="bg-toggle-visible">${bg.visible !== false ? 'Ocultar' : 'Mostrar'}</button><button class="btn" data-act="bg-toggle-lock">${bg.locked ? 'Desbloquear' : 'Bloquear'}</button></div>`;
+  }
+  return h + '</section>';
+}
 function structureHTML() {
   const nr = ui.newRoom, drawShape = nr.shape === 'draw';
-  let h = `<section class="sec"><div class="sec-title">Nueva habitación</div>`;
+  let h = bgHTML();
+  h += `<section class="sec"><div class="sec-title">Nueva habitación</div>`;
   h += segCtl('newRoom.shape', [['rect', 'Rectángulo'], ['L', 'En L'], ['poly', 'Polígono'], ['draw', 'A mano']], nr.shape);
   if (!drawShape) {
     const pts = newRoomPoints();
@@ -79,8 +92,8 @@ function furnWarn(f) {
 function whereOpening(o) { const r = find('room', o.roomId); return r ? `En ${esc(r.name)}, muro ${o.edge + 1}` : ''; }
 
 function inspectorHTML(kind, o) {
-  const kinds = { room: 'Habitación', opening: o.type === 'door' ? 'Puerta' : 'Ventana', furniture: 'Mueble', column: 'Columna', label: 'Etiqueta' };
-  const title = kind === 'room' ? esc(o.name) : kind === 'furniture' ? esc(o.name || 'Sin nombre') : kind === 'label' ? esc(o.text) : kind === 'opening' ? whereOpening(o) : (o.shape === 'circle' ? 'Circular' : 'Rectangular');
+  const kinds = { room: 'Habitación', opening: o.type === 'door' ? 'Puerta' : 'Ventana', furniture: 'Mueble', column: 'Columna', label: 'Etiqueta', bg: 'Imagen de fondo' };
+  const title = kind === 'room' ? esc(o.name) : kind === 'furniture' ? esc(o.name || 'Sin nombre') : kind === 'label' ? esc(o.text) : kind === 'opening' ? whereOpening(o) : kind === 'bg' ? 'Plano' : (o.shape === 'circle' ? 'Circular' : 'Rectangular');
   let h = `<div class="insp-head"><button class="icon-btn" data-act="back" title="Volver (Esc)" aria-label="Volver">${icon('back')}</button><div class="insp-titles"><div class="kind">${kinds[kind]}</div><div class="title" data-bind="title">${title}</div></div></div>`;
 
   if (kind === 'room') {
@@ -132,6 +145,15 @@ function inspectorHTML(kind, o) {
     h += actionsRow({ rotate: o.shape !== 'circle' });
   }
 
+  if (kind === 'bg') {
+    h += `<section class="sec stack">${numField('Ancho', 'bg.w', o.w)}`;
+    h += `<div class="field"><span>Opacidad</span><div class="rot-row"><input type="range" min="5" max="100" step="1" data-field="bg.opacity" data-idx="range" value="${Math.round(o.opacity * 100)}" aria-label="Opacidad">${numInput('bg.opacity', o.opacity * 100, { unit: '%', d: 0, step: 1, aria: 'Opacidad' })}</div></div>`;
+    h += `<div class="field"><span>Rotación</span><div class="rot-row"><input type="range" min="0" max="359" step="1" data-field="bg.rot" data-idx="range" value="${Math.round(o.rot || 0)}" aria-label="Rotación">${numInput('bg.rot', o.rot || 0, { unit: '°', d: 0, step: 1, aria: 'Rotación en grados' })}</div></div>`;
+    h += `<button class="btn block" data-act="bg-replace">Reemplazar imagen</button>`;
+    h += `<p class="note">Arrástrala por el lienzo para moverla y usa el asa de la esquina para escalarla manteniendo la proporción.</p></section>`;
+    h += `<section class="sec row-actions"><button class="btn" data-act="bg-toggle-lock">${o.locked ? 'Desbloquear' : 'Bloquear'}</button><button class="btn danger" data-act="delete" title="Eliminar (Supr)" aria-label="Eliminar">${icon('trash')}</button></section>`;
+  }
+
   if (kind === 'label') {
     h += `<section class="sec stack">${textField('Texto', 'label.text', o.text)}${labeled('Tamaño', segCtl('label.size', [['s', 'Pequeño'], ['m', 'Mediano'], ['l', 'Grande']], o.size))}`;
     h += `<p class="note">Las etiquetas flotan libres por el plano. Para nombrar una habitación usa su propio nombre, que siempre muestra los m².</p></section>`;
@@ -170,6 +192,7 @@ function getField(field, idx) {
   }
   if ((ns === 'f' || ns === 'col') && key === 'd') return o.w;
   if (ns === 'f' && key === 'rot') return o.rot || 0;
+  if (ns === 'bg') { if (key === 'opacity') return (o.opacity || 0) * 100; if (key === 'rot') return o.rot || 0; }
   return o[key];
 }
 function syncInspector() {
@@ -256,6 +279,13 @@ function setField(field, raw, isCommit, idx) {
       else if (key === 'size') o.size = raw;
       break;
     }
+    case 'bg': {
+      if (!o) return;
+      if (key === 'w') { if (!isNaN(v)) { const val = clamp(v, 0.1, 500); o.w = r3(val); o.h = r3(val / (o.ar || (o.w / o.h) || 1)); } }
+      else if (key === 'opacity') { if (!isNaN(v)) o.opacity = clamp(v / 100, 0.05, 1); if (!isCommit) { requestRender(); return; } }
+      else if (key === 'rot') { if (!isNaN(v)) o.rot = norm360(Math.round(v * 10) / 10); if (!isCommit) { requestRender(); return; } }
+      break;
+    }
   }
   if (isCommit) commit();
   if (rebuild) renderPanel(); else syncInspector();
@@ -292,6 +322,9 @@ panel.addEventListener('click', e => {
     }
     case 'rot-set': setField('f.rot', b.dataset.value, true); break;
     case 'toggle': ui[b.dataset.key] = !ui[b.dataset.key]; renderPanel(); requestRender(); break;
+    case 'bg-add': case 'bg-replace': $('#file-bg').click(); break;
+    case 'bg-toggle-lock': if (doc.bg) { doc.bg.locked = !doc.bg.locked; commit(); renderPanel(); requestRender(); } break;
+    case 'bg-toggle-visible': if (doc.bg) { doc.bg.visible = doc.bg.visible === false; commit(); renderPanel(); requestRender(); } break;
   }
 });
 panel.addEventListener('input', e => {
@@ -427,6 +460,13 @@ $('#file').addEventListener('change', async e => {
   if (!file) return;
   try { const d = sanitize(JSON.parse(await file.text())); if (!d) throw new Error('inválido'); replaceDoc(d, 'Proyecto abierto'); }
   catch (_) { toast('Ese archivo no es un proyecto válido de Planta', true); }
+});
+$('#file-bg').addEventListener('change', async e => {
+  const file = e.target.files[0]; e.target.value = '';
+  if (!file) return;
+  if (!file.type.startsWith('image/')) { toast('Elige un archivo de imagen (PNG o JPG)', true); return; }
+  try { await setBgFromFile(file); renderPanel(); toast('Imagen de fondo cargada'); }
+  catch (err) { toast(err.message || 'No se pudo cargar la imagen', true); }
 });
 function exportPNG() {
   const b = docBounds();

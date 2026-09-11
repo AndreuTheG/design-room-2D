@@ -52,6 +52,7 @@ Los scripts se cargan en ese orden y comparten ámbito global. El build los envu
 - **Muros compartidos:** si dos habitaciones comparten muro, sus muros se superponen. Las puertas y ventanas atraviesan todos los muros paralelos solapados.
 - **Aberturas:** se anclan a un lado con `roomId`, `edge` y `offset` (distancia desde `points[edge]`).
 - **Muebles:** `x, y` es el centro, `w × h` el tamaño antes de rotar y `rot` los grados en sentido horario.
+- **Imagen de fondo (`bg`):** opcional, un único objeto (no una lista): `{ "src": "data:image/png;base64,...", "x": 4, "y": 2.5, "w": 6, "h": 4.2, "rot": 0, "opacity": 0.6, "locked": false, "visible": true, "ar": 1.43 }`. `x, y` es el centro y `w × h` el tamaño en metros antes de rotar, igual que un mueble. `ar` guarda la relación de aspecto original de la imagen para que el campo "Ancho" del inspector siempre recalcule el alto sin deformarla. Sirve para calcar un plano descargado (PDF exportado a imagen, foto, folleto de la promoción) y dibujar habitaciones y muebles encima; se dibuja siempre detrás de todo lo demás y se excluye de la exportación a PNG.
 
 **Render.** `renderScene()` genera el SVG entero como texto en cada frame (`requestAnimationFrame`). Es simple de razonar y sobra rendimiento para planos de vivienda.
 
@@ -72,6 +73,7 @@ Los scripts se cargan en ese orden y comparten ámbito global. El build los envu
 | Cómo se dibuja un elemento | funciones `*Svg` en `render.js` |
 | Campos del inspector | `inspectorHTML`, `getField` y `setField` en `panel.js` |
 | Plano de ejemplo | `demoDoc` en `core.js` |
+| Imagen de fondo (subida, arrastre, escala) | `bgHTML`/inspector `kind==='bg'` en `panel.js`, `setBgFromFile` en `ui.js`, `bgSvg`/`bgHandles` en `render.js` |
 
 ## Atajos
 
@@ -96,3 +98,4 @@ Los scripts se cargan en ese orden y comparten ámbito global. El build los envu
 - Estirar una habitación no arrastra a la vecina con la que comparte muro.
 - Las columnas solo giran de 90 en 90°.
 - La posición de una abertura se mide desde el vértice inicial del lado, que depende del orden en que se creó la habitación.
+- La imagen de fondo no sale en la exportación PNG (solo sirve de referencia para calcar) y no se guarda si el archivo pesa más de 15 MB. Al guardar como JSON queda embebida en base64, así que el archivo del proyecto puede pesar bastante más que la imagen original.

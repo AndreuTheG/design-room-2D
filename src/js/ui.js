@@ -72,6 +72,7 @@ function updateHint() {
   else if (sel && sel.kind === 'furniture') h = parts('Arrastra para mover', 'Asa superior para rotar', `${k('R')} gira 90°`, `${k('Supr')} elimina`);
   else if (sel && sel.kind === 'room') h = parts('Arrastra para mover y encajar con otras', 'Vértices y asas de muro cambian la forma', `${k('Supr')} elimina`);
   else if (sel && sel.kind === 'opening') h = parts('Arrastra a lo largo de cualquier muro', `${k('Supr')} elimina`);
+  else if (sel && sel.kind === 'bg') h = parts('Arrastra para mover', 'Asa de la esquina para escalar', `${k('Supr')} elimina`);
   else if (sel) h = parts('Arrastra para mover', `${k('Supr')} elimina`);
   else h = parts(`${k('Rueda')} zoom`, `Arrastra el fondo o ${k('Espacio')} para mover la vista`, `${k('F')} encuadra`);
   if (h !== lastHint) { hintEl.innerHTML = h; lastHint = h; }
@@ -219,8 +220,33 @@ function applyFurn(o, nx) {
   toast('No cabe: chocaría con un muro. Sepáralo de la pared y vuelve a intentarlo.', true);
   return false;
 }
+function setBgFromFile(file) {
+  return new Promise((resolve, reject) => {
+    if (file.size > 15 * 1024 * 1024) { reject(new Error('La imagen es demasiado grande (máx. 15 MB)')); return; }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('No se pudo leer el archivo'));
+    reader.onload = () => {
+      const src = reader.result;
+      const img = new Image();
+      img.onerror = () => reject(new Error('No se pudo cargar la imagen'));
+      img.onload = () => {
+        const ar = (img.naturalWidth / img.naturalHeight) || 1;
+        const c = toWorld(viewCenter());
+        const w = r3(clamp(Math.min(10, (stage.clientWidth * 0.6) / view.scale), 1, 60));
+        const h = r3(w / ar);
+        doc.bg = { src, x: r3(c.x), y: r3(c.y), w, h, rot: 0, opacity: 0.6, locked: false, visible: true, ar };
+        select('bg', 'bg'); commit();
+        animateView(fitTarget({ minX: c.x - w / 2, minY: c.y - h / 2, maxX: c.x + w / 2, maxY: c.y + h / 2 }));
+        resolve();
+      };
+      img.src = src;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 function deleteSel() {
   if (!sel) return;
+  if (sel.kind === 'bg') { doc.bg = null; sel = null; commit(); renderPanel(); requestRender(); toast('Imagen eliminada. Ctrl+Z para deshacer'); return; }
   const { kind, id } = sel, coll = COLL[kind];
   doc[coll] = doc[coll].filter(o => o.id !== id);
   if (kind === 'room') doc.openings = doc.openings.filter(o => o.roomId !== id);
@@ -231,6 +257,7 @@ function deleteSel() {
 function duplicateSel() {
   const o = selObj(); if (!o) return;
   const k = sel.kind;
+  if (k === 'bg') return;
   if (k === 'furniture') {
     const c = { ...clone(o), id: uid('f') };
     const spot = findSpot(c, o.x + 0.3, o.y + 0.3, c.rot, buildGeom(), 2.5, true) || { x: o.x + 0.3, y: o.y + 0.3 };
@@ -257,6 +284,7 @@ function rotateSel(deg) {
   if (sel.kind === 'furniture') { if (o.shape === 'circle') return; if (applyFurn(o, { ...o, rot: norm360(Math.round(((o.rot || 0) + deg) * 10) / 10) })) commit(); }
   else if (sel.kind === 'room') { rotateRoom(o, deg); commit(); }
   else if (sel.kind === 'column') { [o.w, o.h] = [o.h, o.w]; commit(); }
+  else if (sel.kind === 'bg') { o.rot = norm360(Math.round(((o.rot || 0) + deg) * 10) / 10); commit(); }
   else return;
   renderPanel(); requestRender();
 }
@@ -264,7 +292,7 @@ function nudge(dx, dy) {
   const o = selObj(); if (!o) return;
   switch (sel.kind) {
     case 'furniture': moveFurniture(o, { x: o.x + dx, y: o.y + dy }, buildGeom(), false); break;
-    case 'column': case 'label': o.x = r3(o.x + dx); o.y = r3(o.y + dy); break;
+    case 'column': case 'label': case 'bg': o.x = r3(o.x + dx); o.y = r3(o.y + dy); break;
     case 'room': {
       const ins = itemsInside(o);
       o.points = o.points.map(p => ({ x: r3(p.x + dx), y: r3(p.y + dy) }));
@@ -471,6 +499,20 @@ svg.addEventListener('pointerdown', e => {
       break;
     }
     case 'opening': select('opening', id); drag = { ...base, type: 'opening', id, G: buildGeom() }; break;
+    case 'bgimg': {
+      if (isSel('bg', 'bg')) {
+        const bg = doc.bg; if (!bg) break;
+        drag = { ...base, type: 'bg', grab: V.sub(w, { x: bg.x, y: bg.y }) };
+      } else {
+        drag = { ...base, type: 'pan', ox0: view.ox, oy0: view.oy, pending: { kind: 'bg' } };
+      }
+      break;
+    }
+    case 'bgresize': {
+      const bg = doc.bg; if (!bg) break;
+      drag = { ...base, type: 'bgresize', c0: { x: bg.x, y: bg.y }, w0: bg.w, h0: bg.h, rot: bg.rot || 0 };
+      break;
+    }
     case 'label': {
       select('label', id);
       const l = find('label', id); if (!l) break;
@@ -629,6 +671,24 @@ function onDrag(d, sp, w, e) {
     }
     case 'label': { const l = find('label', d.id); if (l) { l.x = r3(w.x - d.grab.x); l.y = r3(w.y - d.grab.y); } break; }
     case 'roomlabel': { const r = find('room', d.id); if (r) r.labelOffset = { x: r3(w.x - d.grab.x - d.vc.x), y: r3(w.y - d.grab.y - d.vc.y) }; break; }
+    case 'bg': {
+      const bg = doc.bg; if (!bg) break;
+      const p = V.sub(w, d.grab);
+      bg.x = r3(p.x); bg.y = r3(p.y);
+      break;
+    }
+    case 'bgresize': {
+      const bg = doc.bg; if (!bg) break;
+      const anchorLocal = { x: -d.w0 / 2, y: -d.h0 / 2 };
+      const aw = V.add(d.c0, V.rot(anchorLocal, d.rot));
+      const lp = V.rot(V.sub(w, aw), -d.rot);
+      const rawW = Math.max(0.05, lp.x), rawH = Math.max(0.05, lp.y);
+      const scale = clamp(V.len({ x: rawW, y: rawH }) / V.len({ x: d.w0, y: d.h0 }), 0.05, 100);
+      const newW = r3(d.w0 * scale), newH = r3(d.h0 * scale);
+      const c = V.add(aw, V.rot({ x: newW / 2, y: newH / 2 }, d.rot));
+      bg.w = Math.max(0.05, newW); bg.h = Math.max(0.05, newH); bg.x = r3(c.x); bg.y = r3(c.y);
+      break;
+    }
   }
 }
 
@@ -640,6 +700,7 @@ function endPointer(e) {
   if (d.type === 'pan') {
     if (!d.moved && d.pending) {
       if (d.pending.kind === 'room') { select('room', d.pending.id); if (d.pending.edge != null) flashWall(d.pending.edge); }
+      else if (d.pending.kind === 'bg') { select('bg', 'bg'); }
       else if (sel) select(null);
     }
   } else if (d.type === 'furniture' || d.type === 'rotate' || d.type === 'resize') {
