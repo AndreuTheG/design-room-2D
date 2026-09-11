@@ -1,0 +1,9 @@
+{
+  "name": "planta",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Editor web de planos de vivienda en 2D",
+  "scripts": {
+    "build": "node build.mjs"
+  }
+}
