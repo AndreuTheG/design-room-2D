@@ -188,19 +188,19 @@ function circlePolyOverlap(c, r, poly) {
 }
 
 /* ════════════════════════ Estado ════════════════════════ */
-const emptyDoc = () => ({ rooms: [], openings: [], furniture: [], columns: [], labels: [] });
+const emptyDoc = () => ({ rooms: [], openings: [], furniture: [], columns: [], labels: [], bg: null });
 let doc = emptyDoc();
 const view = { scale: 80, ox: 0, oy: 0 };
 const ui = {
   tab: 'structure', grid: true, allDims: false, allowZones: false,
-  hoverEdge: null, placeType: null, placePreview: null,
+  hoverEdge: null, hoverOpening: null, placeType: null, placePreview: null,
   newRoom: { shape: 'rect', w: 4, h: 3, cw: 1.5, ch: 1.5, sides: 6, side: 2, t: 0.15 },
 };
 let sel = null, mode = 'select', drag = null, draw = null, spaceDown = false, libDrag = null;
 let lastPointerWorld = { x: 0, y: 0 };
 
 const COLL = { room: 'rooms', opening: 'openings', furniture: 'furniture', column: 'columns', label: 'labels' };
-const find = (kind, id) => (doc[COLL[kind]] || []).find(o => o.id === id) || null;
+const find = (kind, id) => (kind === 'bg' ? doc.bg || null : (doc[COLL[kind]] || []).find(o => o.id === id) || null);
 const selObj = () => (sel ? find(sel.kind, sel.id) : null);
 const isSel = (kind, id) => !!sel && sel.kind === kind && sel.id === id;
 
@@ -422,6 +422,27 @@ function rotateRoom(room, deg) {
   for (const c2 of ins.columns) { const q = rp(c2); c2.x = r3(q.x); c2.y = r3(q.y); if (Math.abs(deg % 180) === 90) [c2.w, c2.h] = [c2.h, c2.w]; }
   for (const l of ins.labels) { const q = rp(l); l.x = r3(q.x); l.y = r3(q.y); }
 }
+/* Escala una habitación (y lo que hay dentro) desde su centro para que su superficie útil pase a ser targetArea, manteniendo la proporción entre todos sus muros */
+function scaleRoomToArea(room, targetArea) {
+  const A = polyArea(room.points);
+  if (!(targetArea > 0.01) || A < 1e-6) return false;
+  const k = Math.sqrt(targetArea / A);
+  if (Math.abs(k - 1) < 1e-4) return true;
+  const c = centroid(room.points), sp = p => V.add(c, V.mul(V.sub(p, c), k));
+  const ins = itemsInside(room);
+  room.points = room.points.map(p => { const q = sp(p); return { x: r3(q.x), y: r3(q.y) }; });
+  const lo = room.labelOffset || { x: 0, y: 0 };
+  room.labelOffset = { x: r3(lo.x * k), y: r3(lo.y * k) };
+  for (const f of ins.furniture) { const q = sp(f); f.x = r3(q.x); f.y = r3(q.y); }
+  for (const c2 of ins.columns) { const q = sp(c2); c2.x = r3(q.x); c2.y = r3(q.y); }
+  for (const l of ins.labels) { const q = sp(l); l.x = r3(q.x); l.y = r3(q.y); }
+  for (const op of doc.openings) {
+    if (op.roomId !== room.id) continue;
+    op.offset = r3(Math.max(0, op.offset * k));
+    op.width = r3(clamp(op.width * k, 0.1, 20));
+  }
+  return true;
+}
 function normalizeOpenings() {
   const rooms = new Map(doc.rooms.map(r => [r.id, r]));
   doc.openings = doc.openings.filter(o => rooms.has(o.roomId));
@@ -471,6 +492,13 @@ function sanitize(d) {
   out.labels = (Array.isArray(d.labels) ? d.labels : []).filter(l => l && Number.isFinite(+l.x)).map(l => ({
     id: String(l.id || uid('l')), text: String(l.text ?? ''), x: +l.x, y: num(l.y, 0), size: ['s', 'm', 'l'].includes(l.size) ? l.size : 'm',
   }));
+  out.bg = (d.bg && typeof d.bg.src === 'string' && /^data:image\//.test(d.bg.src)) ? {
+    src: d.bg.src, x: num(d.bg.x, 0), y: num(d.bg.y, 0),
+    w: clamp(num(d.bg.w, 1), 0.05, 500), h: clamp(num(d.bg.h, 1), 0.05, 500),
+    rot: norm360(num(d.bg.rot, 0)), opacity: clamp(num(d.bg.opacity, 0.6), 0.05, 1),
+    locked: !!d.bg.locked, visible: d.bg.visible !== false,
+    ar: clamp(num(d.bg.ar, num(d.bg.w, 1) / Math.max(0.01, num(d.bg.h, 1))), 0.02, 50),
+  } : null;
   normalizeOpeningsOn(out);
   return out;
 }

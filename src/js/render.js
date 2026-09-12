@@ -43,6 +43,7 @@ function renderScene(v, W, H, o = {}) {
   const out = [];
   if (!exp) out.push(`<rect data-kind="bg" x="0" y="0" width="${W}" height="${H}" fill="transparent"/>`);
   if (!exp && ui.grid) out.push(gridSvg(W, H));
+  if (!exp && doc.bg && doc.bg.visible !== false) out.push(bgSvg(doc.bg));
 
   // Conflictos de muebles (muros/columnas y zonas de apertura)
   const conf = new Map(), hot = new Set();
@@ -86,7 +87,7 @@ function renderScene(v, W, H, o = {}) {
     }
   }
   // Puertas y ventanas
-  for (const og of G.openings) out.push(openingSvg(og, hot.has(og.op.id), !exp && isSel('opening', og.op.id)));
+  for (const og of G.openings) out.push(openingSvg(og, hot.has(og.op.id), !exp && (isSel('opening', og.op.id) || ui.hoverOpening === og.op.id)));
   // Columnas
   for (const c of doc.columns) {
     const on = !exp && isSel('column', c.id);
@@ -113,6 +114,7 @@ function renderScene(v, W, H, o = {}) {
     if (selRoom) out.push(roomHandles(G.gmap.get(selRoom)));
     if (sel && sel.kind === 'furniture') { const f = find('furniture', sel.id); if (f) out.push(furnitureHandles(f)); }
     if (sel && sel.kind === 'opening') { const og = G.openings.find(x => x.op.id === sel.id); if (og) out.push(openingDims(og)); }
+    if (sel && sel.kind === 'bg' && doc.bg) out.push(bgHandles(doc.bg));
     if (drag && drag.guides) out.push(guidesSvg(drag.guides, W, H));
     if (mode === 'draw' && draw) out.push(drawPreview(W, H));
     if (mode === 'place' && ui.placePreview) { const og = openingGeom(ui.placePreview, G.gmap); if (og) out.push(`<g opacity=".8" pointer-events="none">${openingSvg(og, false, true)}</g>`); }
@@ -123,33 +125,35 @@ function renderScene(v, W, H, o = {}) {
 function openingSvg(og, hotZone, on) {
   const { op, e, s, f, lo, hi, n, side, leaves, w } = og;
   const T = hi - lo, ink = on ? C.accent : C.ink, k = 1 / RV.scale, out = [];
+  const m = on ? 2.2 : 1;
   const pad = Math.max(T, 16 * k) * 0.6;
   const band = (a0, a1) => [V.add(s, V.mul(n, a0)), V.add(f, V.mul(n, a0)), V.add(f, V.mul(n, a1)), V.add(s, V.mul(n, a1))];
   out.push(`<path d="${dPath(band(lo - pad, hi + pad))}" fill="transparent"/>`);
+  if (on) out.push(`<path d="${dPath(band(lo - pad, hi + pad))}" fill="${C.accent}" fill-opacity=".2" pointer-events="none"/>`);
   if (T > 0.004) out.push(`<path d="${dPath(band(lo - 1.5 * k, hi + 1.5 * k))}" fill="${op.type === 'window' ? '#FFFFFF' : CUT_FILL}"/>`);
   const at = (p, r) => V.add(p, V.mul(n, lo + T * r));
   const sIn = at(s, 0), fIn = at(f, 0), sOut = at(s, 1), fOut = at(f, 1);
   if (op.type === 'window') {
-    if (T > 0.004) out.push(lineEl(sIn, fIn, ink, 1), lineEl(sOut, fOut, ink, 1), lineEl(sIn, sOut, ink, 1), lineEl(fIn, fOut, ink, 1));
+    if (T > 0.004) out.push(lineEl(sIn, fIn, ink, 1 * m), lineEl(sOut, fOut, ink, 1 * m), lineEl(sIn, sOut, ink, 1 * m), lineEl(fIn, fOut, ink, 1 * m));
     if (op.style === 'sliding') {
       const m1 = V.add(s, V.mul(e.d, w * 0.56)), m2 = V.add(s, V.mul(e.d, w * 0.44));
-      out.push(lineEl(at(s, 0.36), at(m1, 0.36), ink, 1.7), lineEl(at(m2, 0.64), at(f, 0.64), ink, 1.7));
-    } else out.push(lineEl(at(s, 0.5), at(f, 0.5), ink, 1.3));
+      out.push(lineEl(at(s, 0.36), at(m1, 0.36), ink, 1.7 * m), lineEl(at(m2, 0.64), at(f, 0.64), ink, 1.7 * m));
+    } else out.push(lineEl(at(s, 0.5), at(f, 0.5), ink, 1.3 * m));
   } else {
-    if (T > 0.004) out.push(lineEl(sIn, sOut, ink, 1), lineEl(fIn, fOut, ink, 1));
+    if (T > 0.004) out.push(lineEl(sIn, sOut, ink, 1 * m), lineEl(fIn, fOut, ink, 1 * m));
     if (op.style === 'sliding') {
       if (op.leaves === 2) {
         const m1 = V.add(s, V.mul(e.d, w * 0.56)), m2 = V.add(s, V.mul(e.d, w * 0.44));
-        out.push(lineEl(at(s, 0.32), at(m1, 0.32), ink, 2.4), lineEl(at(m2, 0.68), at(f, 0.68), ink, 2.4));
-      } else out.push(lineEl(at(s, 0.5), at(f, 0.5), ink, 2.4));
+        out.push(lineEl(at(s, 0.32), at(m1, 0.32), ink, 2.4 * m), lineEl(at(m2, 0.68), at(f, 0.68), ink, 2.4 * m));
+      } else out.push(lineEl(at(s, 0.5), at(f, 0.5), ink, 2.4 * m));
     }
   }
   for (const L of leaves) {
     const arc = sectorPoly(L.h, L.c, side, L.r, 18).slice(1);
     const tip = V.add(L.h, V.mul(side, L.r));
     const col = hotZone ? C.danger : on ? C.accent : C.arc;
-    out.push(`<path d="${dPath(arc, false)}" fill="none" stroke="${col}" stroke-width="${px(1.1)}" stroke-dasharray="${px(4)} ${px(3)}"/>`);
-    out.push(lineEl(L.h, tip, hotZone ? C.danger : ink, op.type === 'door' ? 2.2 : 1.3));
+    out.push(`<path d="${dPath(arc, false)}" fill="none" stroke="${col}" stroke-width="${px(1.1 * m)}" stroke-dasharray="${px(4)} ${px(3)}"/>`);
+    out.push(lineEl(L.h, tip, hotZone ? C.danger : ink, (op.type === 'door' ? 2.2 : 1.3) * m));
   }
   return `<g data-kind="opening" data-id="${op.id}" style="cursor:move">${out.join('')}</g>`;
 }
@@ -296,6 +300,20 @@ function guidesSvg(gd, W, H) {
   return o;
 }
 
+function bgSvg(bg) {
+  const X = SX(bg.x), Y = SY(bg.y), w = Math.max(1, bg.w * RV.scale), h = Math.max(1, bg.h * RV.scale), rot = bg.rot || 0;
+  const tr = `translate(${X.toFixed(1)},${Y.toFixed(1)}) rotate(${rot.toFixed(2)})`;
+  let o = `<g transform="${tr}" opacity="${bg.opacity}" pointer-events="none"><image href="${esc(bg.src)}" x="${(-w / 2).toFixed(1)}" y="${(-h / 2).toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" preserveAspectRatio="none"/></g>`;
+  if (!bg.locked) o += `<rect data-kind="bgimg" data-id="bg" x="${(-w / 2).toFixed(1)}" y="${(-h / 2).toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="transparent" transform="${tr}" style="cursor:${isSel('bg', 'bg') ? 'move' : 'default'}"/>`;
+  return o;
+}
+function bgHandles(bg) {
+  const X = SX(bg.x), Y = SY(bg.y), w = bg.w * RV.scale, h = bg.h * RV.scale, rot = bg.rot || 0;
+  const tr = `translate(${X.toFixed(1)},${Y.toFixed(1)}) rotate(${rot.toFixed(2)})`;
+  let o = `<rect transform="${tr}" x="${(-w / 2).toFixed(1)}" y="${(-h / 2).toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="none" stroke="${C.accent}" stroke-width="1.5" stroke-dasharray="6 4" pointer-events="none"/>`;
+  if (!bg.locked) o += `<rect data-kind="bgresize" data-id="bg" transform="${tr}" x="${(w / 2 - 6).toFixed(1)}" y="${(h / 2 - 6).toFixed(1)}" width="12" height="12" rx="2.5" fill="#fff" stroke="${C.accent}" stroke-width="1.6" style="cursor:nwse-resize"/>`;
+  return o;
+}
 function drawPreview(W, H) {
   const pts = draw.points, cur = draw.cursor;
   const all = cur && !(pts.length && V.dist(cur, pts[pts.length - 1]) < 1e-6) ? pts.concat([cur]) : pts.slice();

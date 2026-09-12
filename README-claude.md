@@ -50,8 +50,11 @@ Los scripts se cargan en ese orden y comparten ámbito global. El build los envu
 
 - **Habitaciones:** cada una es el polígono interior (`points`). El lado `i` va de `points[i]` a `points[i+1]` y su grosor `thick[i]` crece hacia fuera, con esquinas a inglete. Los m² son la superficie útil interior.
 - **Muros compartidos:** si dos habitaciones comparten muro, sus muros se superponen. Las puertas y ventanas atraviesan todos los muros paralelos solapados.
+- **Resaltar al pasar el ratón por la lista:** en el inspector de una habitación, pasar el ratón por una fila de "Muros" ilumina ese muro en el plano (`ui.hoverEdge`); igual para "Puertas y ventanas" con `ui.hoverOpening`, sin necesidad de hacer clic, para identificar cuál es cuál antes de seleccionarla.
+- **Escalar por superficie:** en el inspector de una habitación, bajo "Superficie útil", hay un campo con la superficie real y un botón "Escalar" (`scaleRoomToArea` en `core.js`). Multiplica todos los vértices por `sqrt(objetivo / área actual)` desde el centro de la habitación, manteniendo la proporción entre muros; mueve con ella los muebles, columnas y etiquetas que contiene, y escala el `offset`/`width` de sus puertas y ventanas. Pensado para corregir habitaciones calcadas sobre una imagen a una escala equivocada. El grosor de los muros no se toca. Como al estirar un muro, no arrastra a la habitación vecina con la que comparte pared.
 - **Aberturas:** se anclan a un lado con `roomId`, `edge` y `offset` (distancia desde `points[edge]`).
 - **Muebles:** `x, y` es el centro, `w × h` el tamaño antes de rotar y `rot` los grados en sentido horario.
+- **Imagen de fondo (`bg`):** opcional, un único objeto (no una lista): `{ "src": "data:image/png;base64,...", "x": 4, "y": 2.5, "w": 6, "h": 4.2, "rot": 0, "opacity": 0.6, "locked": false, "visible": true, "ar": 1.43 }`. `x, y` es el centro y `w × h` el tamaño en metros antes de rotar, igual que un mueble. `ar` guarda la relación de aspecto original de la imagen para que el campo "Ancho" del inspector siempre recalcule el alto sin deformarla. Sirve para calcar un plano descargado (PDF exportado a imagen, foto, folleto de la promoción) y dibujar habitaciones y muebles encima; se dibuja siempre detrás de todo lo demás y se excluye de la exportación a PNG.
 
 **Render.** `renderScene()` genera el SVG entero como texto en cada frame (`requestAnimationFrame`). Es simple de razonar y sobra rendimiento para planos de vivienda.
 
@@ -72,6 +75,8 @@ Los scripts se cargan en ese orden y comparten ámbito global. El build los envu
 | Cómo se dibuja un elemento | funciones `*Svg` en `render.js` |
 | Campos del inspector | `inspectorHTML`, `getField` y `setField` en `panel.js` |
 | Plano de ejemplo | `demoDoc` en `core.js` |
+| Imagen de fondo (subida, arrastre, escala) | `bgHTML`/inspector `kind==='bg'` en `panel.js`, `setBgFromFile` en `ui.js`, `bgSvg`/`bgHandles` en `render.js` |
+| Escalar habitación a una superficie útil dada | `scaleRoomToArea` en `core.js`, botón "Escalar" en el inspector de habitación en `panel.js` |
 
 ## Atajos
 
@@ -96,3 +101,4 @@ Los scripts se cargan en ese orden y comparten ámbito global. El build los envu
 - Estirar una habitación no arrastra a la vecina con la que comparte muro.
 - Las columnas solo giran de 90 en 90°.
 - La posición de una abertura se mide desde el vértice inicial del lado, que depende del orden en que se creó la habitación.
+- La imagen de fondo no sale en la exportación PNG (solo sirve de referencia para calcar) y no se guarda si el archivo pesa más de 15 MB. Al guardar como JSON queda embebida en base64, así que el archivo del proyecto puede pesar bastante más que la imagen original.
