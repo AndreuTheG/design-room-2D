@@ -24,6 +24,7 @@ const out = html
   .replace(LINK, () => `<style>\n${css}</style>`)
   .replace(SCRIPTS, () => `<script>\n(() => {\n'use strict';\n${js}\n})();\n</script>`);
 
-mkdirSync(join(root, 'dist'), { recursive: true });
-writeFileSync(join(root, 'dist', 'planta.html'), out);
-console.log(`dist/planta.html generado (${Math.round(out.length / 1024)} KB)`);
+mkdirSync(join(root, 'docs'), { recursive: true });
+writeFileSync(join(root, 'docs', 'index.html'), out);
+writeFileSync(join(root, 'docs', '.nojekyll'), '');
+console.log(`docs/index.html generado (${Math.round(out.length / 1024)} KB)`);
